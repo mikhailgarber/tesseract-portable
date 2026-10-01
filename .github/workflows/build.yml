@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install build tools
-        run: dnf install -y autoconf automake cmake curl git libtool make nasm ninja-build patch perl pkgconfig tar which
+        run: dnf install -y autoconf automake cmake curl git jq libtool make nasm ninja-build patch perl pkgconfig tar which
       - name: Build and verify
         shell: bash
         run: |

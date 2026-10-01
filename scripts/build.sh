@@ -6,7 +6,11 @@ set -euo pipefail
 
 readonly root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly vcpkg_root="${VCPKG_ROOT:-$root_dir/.vcpkg}"
-readonly tesseract_version="$(jq -r '.version' "$root_dir/overlay-ports/tesseract/vcpkg.json")"
+if ! command -v jq >/dev/null 2>&1; then
+    printf 'jq is required to read the Tesseract port version\n' >&2
+    exit 1
+fi
+readonly tesseract_version="$(jq -er '.version' "$root_dir/overlay-ports/tesseract/vcpkg.json")"
 readonly build_number="${BUILD_NUMBER:-1}"
 readonly output_dir="${OUTPUT_DIR:-$root_dir/dist}"
 readonly testdata="${TESTDATA:-$root_dir/.test-data/eng.traineddata}"
