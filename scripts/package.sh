@@ -52,7 +52,7 @@ for package_name in "${package_names[@]}"; do
     fi
     cp "$copyright" "$stage_dir/LICENSES/$package_name.txt"
 
-    package_version="$("$VCPKG_EXE" list --triplet "$TARGET" | awk -v package_name="$package_name" -v target="$TARGET" '$1 == package_name ":" target { print $2; exit }')"
+    package_version="$("$VCPKG_EXE" list --triplet "$TARGET" | awk -v package_name="$package_name" -v target="$TARGET" '$1 == package_name ":" target { print $2 }')"
     if [[ -z "$package_version" ]]; then
         printf 'installed version for %s was not found\n' "$package_name" >&2
         exit 1

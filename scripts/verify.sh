@@ -75,6 +75,12 @@ check_archive() {
 
 check_dependencies
 "$binary" --version
-ocr_output="$("$binary" "$TEST_IMAGE" stdout --tessdata-dir "$(dirname "$TESTDATA")" -l eng 2>&1)"
-grep -F "$expected_text" <<<"$ocr_output" >/dev/null
+if ! ocr_output="$("$binary" "$TEST_IMAGE" stdout --tessdata-dir "$(dirname "$TESTDATA")" -l eng 2>&1)"; then
+    printf 'OCR command failed:\n%s\n' "$ocr_output" >&2
+    exit 1
+fi
+if ! grep -F "$expected_text" <<<"$ocr_output" >/dev/null; then
+    printf 'OCR output did not contain %q:\n%s\n' "$expected_text" "$ocr_output" >&2
+    exit 1
+fi
 check_archive
