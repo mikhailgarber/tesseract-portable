@@ -58,16 +58,31 @@ check_archive() {
     executable_name="$(basename "$binary")"
     expected_checksum="$(awk 'NR == 1 { print $1 }' "$archive.sha256")"
     actual_checksum="$(sha256 "$archive")"
-    [[ "$actual_checksum" == "$expected_checksum" ]]
+    if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+        printf 'archive checksum mismatch: got %s, expected %s\n' "$actual_checksum" "$expected_checksum" >&2
+        return 1
+    fi
 
-    tar -tzf "$archive" | grep -Fx "bin/$executable_name" >/dev/null
-    tar -tzf "$archive" | grep -Fx BUILDINFO.json >/dev/null
+    if ! tar -tzf "$archive" | grep -Fx "bin/$executable_name" >/dev/null; then
+        printf 'archive is missing bin/%s\n' "$executable_name" >&2
+        return 1
+    fi
+    if ! tar -tzf "$archive" | grep -Fx BUILDINFO.json >/dev/null; then
+        printf 'archive is missing BUILDINFO.json\n' >&2
+        return 1
+    fi
     temporary_dir="$(mktemp -d)"
     trap 'rm -rf "$temporary_dir"' RETURN
     tar -C "$temporary_dir" -xzf "$archive"
-    jq -e '.tesseract and (.build | type == "number") and .target and .vcpkgCommit and (.packages | type == "object") and .builtAt' "$temporary_dir/BUILDINFO.json" >/dev/null
+    if ! jq -e '.tesseract and (.build | type == "number") and .target and .vcpkgCommit and (.packages | type == "object") and .builtAt' "$temporary_dir/BUILDINFO.json" >/dev/null; then
+        printf 'archive BUILDINFO.json is incomplete\n' >&2
+        return 1
+    fi
     while IFS= read -r package_name; do
-        [[ -f "$temporary_dir/LICENSES/$package_name.txt" ]]
+        if [[ ! -f "$temporary_dir/LICENSES/$package_name.txt" ]]; then
+            printf 'archive is missing license for %s\n' "$package_name" >&2
+            return 1
+        fi
     done < <(jq -r '.packages | keys[]' "$temporary_dir/BUILDINFO.json")
     rm -rf "$temporary_dir"
     trap - RETURN
