@@ -1,0 +1,11 @@
+{
+  "name": "tesseract-portable",
+  "version-string": "0.1.0",
+  "description": "Portable static Tesseract command-line binaries",
+  "dependencies": [
+    {
+      "name": "tesseract",
+      "default-features": false
+    }
+  ]
+}

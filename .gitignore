@@ -1,0 +1,5 @@
+.vcpkg/
+.test-data/
+dist/
+vcpkg_installed/
+vcpkg_installed/**

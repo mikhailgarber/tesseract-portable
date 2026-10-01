@@ -1,0 +1,122 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag in v<version>+<build> format.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_COMMIT: eb2d3a3279fd019cb7733072d86900d0ad2a1aef
+
+jobs:
+  build-linux:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            triplet: x64-linux-portable
+            runner: ubuntu-24.04
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            triplet: arm64-linux-portable
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: dnf install -y autoconf automake cmake curl git libtool make nasm ninja-build patch perl pkgconfig tar which
+      - name: Build and verify
+        shell: bash
+        run: |
+          release_tag='${{ inputs.release_tag }}'
+          build_number=1
+          if [[ -n "$release_tag" ]]; then
+            port_version="$(jq -r '.version' overlay-ports/tesseract/vcpkg.json)"
+            [[ "$release_tag" =~ ^v${port_version//./\.}\+([1-9][0-9]*)$ ]]
+            build_number="${release_tag##*+}"
+          fi
+          TARGET='${{ matrix.triplet }}' BUILD_NUMBER="$build_number" scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tesseract-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-native:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            triplet: x64-osx-portable
+            runner: macos-15-intel
+          - target: aarch64-apple-darwin
+            triplet: arm64-osx-portable
+            runner: macos-15
+          - target: x86_64-pc-windows-msvc
+            triplet: x64-windows-static
+            runner: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install macOS build tools
+        if: contains(matrix.target, 'apple')
+        run: brew install pkg-config
+      - name: Set up MSVC environment
+        if: contains(matrix.target, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build and verify
+        shell: bash
+        run: |
+          release_tag='${{ inputs.release_tag }}'
+          build_number=1
+          if [[ -n "$release_tag" ]]; then
+            port_version="$(jq -r '.version' overlay-ports/tesseract/vcpkg.json)"
+            [[ "$release_tag" =~ ^v${port_version//./\.}\+([1-9][0-9]*)$ ]]
+            build_number="${release_tag##*+}"
+          fi
+          TARGET='${{ matrix.triplet }}' BUILD_NUMBER="$build_number" scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tesseract-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  clean-linux:
+    name: Clean environment (${{ matrix.target }})
+    needs: build-linux
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tesseract-${{ matrix.target }}
+          path: package
+      - name: Run in Debian Bookworm
+        shell: bash
+        run: |
+          mkdir extracted
+          tar -C extracted -xzf package/*.tar.gz
+          docker run --rm --volume "$PWD/extracted:/opt/tesseract:ro" debian:bookworm-slim \
+            /opt/tesseract/bin/tesseract --version

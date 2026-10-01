@@ -1,0 +1,48 @@
+name: Publish Tessdata
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Upstream tesseract-ocr/tessdata tag.
+        required: true
+        default: 4.1.0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch models and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.upstream_tag }}'
+          git clone --depth 1 --branch "$tag" https://github.com/tesseract-ocr/tessdata.git upstream
+          commit="$(git -C upstream rev-parse HEAD)"
+          mkdir release
+          find upstream -maxdepth 1 -type f -name '*.traineddata' -print0 | sort -z | xargs -0 -I{} cp {} release/
+          (
+            cd release
+            for model in *.traineddata; do
+              sha256sum "$model" | tee "$model.sha256"
+            done
+            cat *.traineddata.sha256 > SHA256SUMS
+          )
+          if [[ "$tag" == '4.1.0' ]]; then
+            [[ "$(awk '{print $1}' release/eng.traineddata.sha256)" == 'daa0c97d651c19fba3b25e81317cd697e9908c8208090c94c3905381c23fc047' ]]
+          fi
+          printf '%s\n%s\n%s\n' \
+            'Repository: https://github.com/tesseract-ocr/tessdata' \
+            "Commit: $commit" \
+            'License: Apache-2.0' > release/SOURCE.txt
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "tessdata-${{ inputs.upstream_tag }}" --draft \
+            --title "tessdata-${{ inputs.upstream_tag }}" \
+            --notes 'Unmodified upstream tessdata language and script models.' release/*

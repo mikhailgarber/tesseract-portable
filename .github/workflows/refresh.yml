@@ -1,0 +1,112 @@
+name: Refresh vcpkg
+
+on:
+  schedule:
+    - cron: '17 4 1 * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: prepare
+        name: Update baseline and overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$(git ls-remote https://github.com/microsoft/vcpkg.git refs/heads/master | awk '{print $1}')"
+          current="$(jq -r '."default-registry".baseline' vcpkg-configuration.json)"
+          if [[ "$baseline" == "$current" ]]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scripts/refresh-overlay.sh "$baseline"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Open refresh pull request
+        if: steps.prepare.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/vcpkg-refresh
+          delete-branch: true
+          commit-message: 'chore: refresh vcpkg baseline'
+          title: 'chore: refresh vcpkg baseline'
+          body: |
+            Updates the vcpkg baseline and recreates the Tesseract overlay from that exact commit.
+
+            CI rebuilds all five targets. Compare each generated `BUILDINFO.json` with the most recent release before merging and tagging a new binary build.
+
+  compare-buildinfo:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Identify refresh pull request
+        id: refresh-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          branch='${{ github.event.workflow_run.head_branch }}'
+          [[ "$branch" == 'automation/vcpkg-refresh' ]] || exit 0
+          number="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          [[ -n "$number" ]] || exit 0
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Download rebuilt artifacts
+        if: steps.refresh-pr.outputs.number != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          pattern: tesseract-*
+          path: current
+          merge-multiple: true
+      - name: Compare package versions
+        if: steps.refresh-pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.refresh-pr.outputs.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_tag="$(gh release list --limit 100 --json tagName,isDraft --jq '[.[] | select((.isDraft | not) and (.tagName | startswith("v")))] | .[0].tagName // empty')"
+          if [[ -z "$latest_tag" ]]; then
+            gh pr comment "$PR_NUMBER" --body 'No published binary release exists yet; retaining this refresh PR for review.'
+            exit 0
+          fi
+          mkdir previous
+          gh release download "$latest_tag" --pattern '*.tar.gz' --dir previous
+          report="$(mktemp)"
+          printf '## vcpkg package comparison\n\nCompared rebuilt artifacts with `%s`.\n' "$latest_tag" > "$report"
+          changed=false
+          shopt -s nullglob
+          for archive in current/*.tar.gz; do
+            target="$(tar -xOf "$archive" BUILDINFO.json | jq -r '.target')"
+            previous_archive="$(find previous -name "*-${target}.tar.gz" -print -quit)"
+            if [[ -z "$previous_archive" ]]; then
+              printf '\n### %s\nNo matching previous artifact.\n' "$target" >> "$report"
+              changed=true
+              continue
+            fi
+            current_packages="$(tar -xOf "$archive" BUILDINFO.json | jq -S '.packages')"
+            previous_packages="$(tar -xOf "$previous_archive" BUILDINFO.json | jq -S '.packages')"
+            if [[ "$current_packages" != "$previous_packages" ]]; then
+              printf '\n### %s\n```diff\n' "$target" >> "$report"
+              diff -u <(printf '%s\n' "$previous_packages") <(printf '%s\n' "$current_packages") >> "$report" || true
+              printf '```\n' >> "$report"
+              changed=true
+            fi
+          done
+          if [[ "$changed" == false ]]; then
+            gh pr comment "$PR_NUMBER" --body "No package versions changed from $latest_tag; closing this refresh PR."
+            gh pr close "$PR_NUMBER" --delete-branch
+            exit 0
+          fi
+          gh pr comment "$PR_NUMBER" --body-file "$report"
