@@ -19,7 +19,7 @@ binaries use the static MSVC runtime and need no Visual C++ redistributable.
 
 ## Releases
 
-Binary releases use tags such as `v5.5.3+1` and contain, for each target:
+Binary releases use tags such as `v5.5.3_1` and contain, for each target:
 
 - `tesseract-<version>-<target>.tar.gz`
 - `tesseract-<version>-<target>.tar.gz.sha256`
@@ -50,7 +50,7 @@ baseline and regenerates the overlay from the upstream port, preserving only the
 intentional removal of curl and libarchive. Once the refresh PR's five-target build
 succeeds, it compares `BUILDINFO.json` package versions with the latest release and
 closes the PR when nothing changed. When versions changed, the PR receives the diff;
-merge it and tag the next `v<version>+<build>` release.
+merge it and tag the next `v<version>_<build>` release.
 
 Configure GitHub Actions with read/write workflow permissions before publishing a
 release. Protect `main`, require pull requests, and restrict creation of `v*` and

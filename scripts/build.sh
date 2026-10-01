@@ -57,7 +57,7 @@ export BUILD_NUMBER="$build_number"
 export OUTPUT_DIR="$output_dir"
 "$root_dir/scripts/package.sh"
 
-archive="$output_dir/tesseract-${tesseract_version}+${build_number}-${TARGET}.tar.gz"
+archive="$output_dir/tesseract-${tesseract_version}_${build_number}-${TARGET}.tar.gz"
 TEST_IMAGE="$root_dir/test/hello.png" \
 TESTDATA="$testdata" \
 "$root_dir/scripts/verify.sh" "$binary" "$archive"

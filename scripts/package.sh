@@ -11,7 +11,7 @@ readonly package_names=(
     tesseract leptonica giflib libjpeg-turbo libpng libspng libwebp openjpeg tiff liblzma zlib
 )
 readonly output_dir="${OUTPUT_DIR:-$PWD/dist}"
-readonly version="${TESSERACT_VERSION}+${BUILD_NUMBER}"
+readonly version="${TESSERACT_VERSION}_${BUILD_NUMBER}"
 readonly installed_dir="${VCPKG_INSTALLED_DIR:-$PWD/vcpkg_installed}/$TARGET"
 readonly stage_dir="$(mktemp -d)"
 
