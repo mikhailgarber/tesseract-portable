@@ -16,6 +16,7 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - name: Fetch models and create checksums
         shell: bash
         run: |
