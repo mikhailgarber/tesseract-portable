@@ -79,6 +79,7 @@ check_archive() {
         return 1
     fi
     while IFS= read -r package_name; do
+        package_name="${package_name%$'\r'}"
         if [[ ! -f "$temporary_dir/LICENSES/$package_name.txt" ]]; then
             printf 'archive is missing license for %s\n' "$package_name" >&2
             return 1
