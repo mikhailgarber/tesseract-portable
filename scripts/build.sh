@@ -45,14 +45,12 @@ if [[ "$(uname -s)" == Darwin ]]; then
 fi
 
 "$root_dir/scripts/fetch-testdata.sh" "$testdata"
-TARGET="$TARGET" \
-VCPKG_ROOT="$vcpkg_root" \
-VCPKG_INSTALLED_DIR="$root_dir/vcpkg_installed" \
-VCPKG_EXE="$vcpkg_exe" \
-VCPKG_COMMIT="$VCPKG_COMMIT" \
-TESSERACT_VERSION="$tesseract_version" \
-BUILD_NUMBER="$build_number" \
-OUTPUT_DIR="$output_dir" \
+export VCPKG_ROOT="$vcpkg_root"
+export VCPKG_INSTALLED_DIR="$root_dir/vcpkg_installed"
+export VCPKG_EXE="$vcpkg_exe"
+export TESSERACT_VERSION="$tesseract_version"
+export BUILD_NUMBER="$build_number"
+export OUTPUT_DIR="$output_dir"
 "$root_dir/scripts/package.sh"
 
 archive="$output_dir/tesseract-${tesseract_version}+${build_number}-${TARGET}.tar.gz"
