@@ -1,5 +1,5 @@
 Derived from the vcpkg Tesseract port at commit
-`eb2d3a3279fd019cb7733072d86900d0ad2a1aef` (2026-10-01).
+`3aea538b2bb21a586502c67b00eb474fdd2e3098` (2026-10-02).
 
 This overlay differs only by removing the `curl` and `libarchive` dependencies
 and disabling their CMake integrations. Refreshes must copy the upstream port
