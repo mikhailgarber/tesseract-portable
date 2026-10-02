@@ -1,6 +1,10 @@
 version: 2
 updates:
+  # One PR for all action bumps, so they build once together.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
