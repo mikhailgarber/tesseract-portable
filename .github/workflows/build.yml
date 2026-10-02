@@ -1,18 +1,35 @@
 name: Build
 
+# Only changes that can affect the binaries start a build. Keep this list in step with the
+# inputs of scripts/build.sh.
 on:
   push:
     branches: [master]
+    paths: &build-inputs
+      - .github/workflows/build.yml
+      - overlay-ports/**
+      - triplets/**
+      - vcpkg.json
+      - vcpkg-configuration.json
+      - scripts/build.sh
+      - scripts/fetch-testdata.sh
+      - scripts/package.sh
+      - scripts/verify.sh
+      - test/**
   pull_request:
-  # refresh.yml dispatches this on its PR branch: PRs opened with GITHUB_TOKEN trigger no
-  # pull_request workflows.
-  workflow_dispatch:
+    paths: *build-inputs
   workflow_call:
     inputs:
       release_tag:
         description: Release tag in v<version>_<build> format.
         required: false
         type: string
+
+# A newer push to the same branch or PR cancels the older build. Release builds (tags) never
+# are.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
@@ -118,7 +135,11 @@ jobs:
 
   compare-buildinfo:
     name: Compare packages with the latest release
-    if: github.event_name == 'workflow_dispatch'
+    # The PR you open from the branch refresh.yml pushes (not a fork's branch of that name).
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'automation/vcpkg-refresh' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     needs: [build-linux, build-native]
     runs-on: ubuntu-24.04
     steps:
