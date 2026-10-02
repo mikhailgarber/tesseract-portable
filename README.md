@@ -25,8 +25,9 @@ Binary releases use tags such as `v5.5.3_1` and contain, for each target:
 - `tesseract-<version>-<target>.tar.gz.sha256`
 
 Each archive contains `bin/tesseract` (or `bin/tesseract.exe`), `LICENSES/`, and
-`BUILDINFO.json`. The checksum file uses the standard `sha256sum` format. Never
-replace a published asset; publish a new build number instead.
+`BUILDINFO.json`. The checksum file uses the standard `sha256sum` format. Releases are
+immutable; a fix is always a new build number. Each archive has a build provenance
+attestation (see [SECURITY.md](SECURITY.md)).
 
 Tessdata models have their own `tessdata-<upstream-tag>` releases. These releases
 contain unmodified `.traineddata` files, individual checksum files, `SHA256SUMS`,
@@ -46,15 +47,15 @@ Both are required to match SHA-256
 ## Maintenance
 
 `refresh.yml` runs monthly and can be dispatched manually. It updates the vcpkg
-baseline and regenerates the overlay from the upstream port, preserving only the
-intentional removal of curl and libarchive. Once the refresh PR's five-target build
-succeeds, it compares `BUILDINFO.json` package versions with the latest release and
-closes the PR when nothing changed. When versions changed, the PR receives the diff;
-merge it and tag the next `v<version>_<build>` release.
+baseline, regenerates the overlay from the upstream port (preserving only the
+intentional removal of curl and libarchive), moves the digest-pinned build containers
+to their newest images, opens a PR, and dispatches the Build workflow on it. That run
+writes the `BUILDINFO.json` package changes against the latest release to its job
+summary. If nothing changed, close the PR; otherwise merge it and tag the next
+`v<version>_<build>` release.
 
-Configure GitHub Actions with read/write workflow permissions before publishing a
-release. Protect `main`, require pull requests, and restrict creation of `v*` and
-`tessdata-*` tags to maintainers.
+Dependabot keeps the commit-SHA-pinned actions current. Security settings and
+reporting: see [SECURITY.md](SECURITY.md).
 
 ## Licenses
 

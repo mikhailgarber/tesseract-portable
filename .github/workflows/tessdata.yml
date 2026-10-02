@@ -9,20 +9,25 @@ on:
         default: 4.1.0
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      UPSTREAM_TAG: ${{ inputs.upstream_tag }}
     steps:
-      - uses: actions/checkout@v4
       - name: Fetch models and create checksums
         shell: bash
         run: |
           set -euo pipefail
-          tag='${{ inputs.upstream_tag }}'
-          git clone --depth 1 --branch "$tag" https://github.com/tesseract-ocr/tessdata.git upstream
+          if [[ ! "$UPSTREAM_TAG" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            printf 'invalid upstream tag: %s\n' "$UPSTREAM_TAG" >&2
+            exit 1
+          fi
+          git clone --depth 1 --branch "$UPSTREAM_TAG" https://github.com/tesseract-ocr/tessdata.git upstream
           commit="$(git -C upstream rev-parse HEAD)"
           mkdir release
           find upstream -maxdepth 1 -type f -name '*.traineddata' -print0 | sort -z | xargs -0 -I{} cp {} release/
@@ -33,7 +38,7 @@ jobs:
             done
             cat *.traineddata.sha256 > SHA256SUMS
           )
-          if [[ "$tag" == '4.1.0' ]]; then
+          if [[ "$UPSTREAM_TAG" == '4.1.0' ]]; then
             [[ "$(awk '{print $1}' release/eng.traineddata.sha256)" == 'daa0c97d651c19fba3b25e81317cd697e9908c8208090c94c3905381c23fc047' ]]
           fi
           printf '%s\n%s\n%s\n' \
@@ -43,7 +48,8 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "tessdata-${{ inputs.upstream_tag }}" --draft \
-            --title "tessdata-${{ inputs.upstream_tag }}" \
+          gh release create "tessdata-$UPSTREAM_TAG" --draft \
+            --title "tessdata-$UPSTREAM_TAG" \
             --notes 'Unmodified upstream tessdata language and script models.' release/*

@@ -2,16 +2,31 @@
 set -euo pipefail
 
 : "${TARGET:?TARGET is required}"
-: "${VCPKG_COMMIT:?VCPKG_COMMIT is required}"
 
 readonly root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly vcpkg_root="${VCPKG_ROOT:-$root_dir/.vcpkg}"
 if ! command -v jq >/dev/null 2>&1; then
-    printf 'jq is required to read the Tesseract port version\n' >&2
+    printf 'jq is required to read the Tesseract port version and the vcpkg baseline\n' >&2
     exit 1
 fi
 readonly tesseract_version="$(jq -er '.version' "$root_dir/overlay-ports/tesseract/vcpkg.json")"
-readonly build_number="${BUILD_NUMBER:-1}"
+# The vcpkg checkout is the baseline commit, so a refresh moves both together.
+export VCPKG_COMMIT="${VCPKG_COMMIT:-$(jq -er '."default-registry".baseline' "$root_dir/vcpkg-configuration.json")}"
+if [[ ! "$VCPKG_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'invalid vcpkg commit: %s\n' "$VCPKG_COMMIT" >&2
+    exit 1
+fi
+
+# A release build takes its build number from the tag, v<tesseract version>_<build>.
+build_number="${BUILD_NUMBER:-1}"
+if [[ -n "${RELEASE_TAG:-}" ]]; then
+    if [[ ! "$RELEASE_TAG" =~ ^v${tesseract_version//./\\.}_([1-9][0-9]*)$ ]]; then
+        printf 'release tag %s does not match v%s_<build>\n' "$RELEASE_TAG" "$tesseract_version" >&2
+        exit 1
+    fi
+    build_number="${BASH_REMATCH[1]}"
+fi
+readonly build_number
 readonly output_dir="${OUTPUT_DIR:-$root_dir/dist}"
 readonly testdata="${TESTDATA:-$root_dir/.test-data/eng.traineddata}"
 
@@ -36,7 +51,8 @@ case "$(uname -s)" in
 esac
 
 if [[ "${GITHUB_ACTIONS:-}" == 'true' ]]; then
-    export VCPKG_BINARY_SOURCES="${VCPKG_BINARY_SOURCES:-clear;x-gha,readwrite}"
+    # No binary cache in CI: every published binary is built from source in its own run.
+    export VCPKG_BINARY_SOURCES="clear"
 else
     export VCPKG_BINARY_SOURCES="${VCPKG_BINARY_SOURCES:-clear;files,$HOME/.cache/vcpkg,readwrite}"
 fi
