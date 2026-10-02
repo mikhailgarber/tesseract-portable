@@ -1,15 +1,35 @@
 name: Build
 
+# Only changes that can affect the binaries start a build. Keep this list in step with the
+# inputs of scripts/build.sh.
 on:
   push:
     branches: [master]
+    paths: &build-inputs
+      - .github/workflows/build.yml
+      - overlay-ports/**
+      - triplets/**
+      - vcpkg.json
+      - vcpkg-configuration.json
+      - scripts/build.sh
+      - scripts/fetch-testdata.sh
+      - scripts/package.sh
+      - scripts/verify.sh
+      - test/**
   pull_request:
+    paths: *build-inputs
   workflow_call:
     inputs:
       release_tag:
         description: Release tag in v<version>_<build> format.
         required: false
         type: string
+
+# A newer push to the same branch or PR cancels the older build. Release builds (tags) never
+# are.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
