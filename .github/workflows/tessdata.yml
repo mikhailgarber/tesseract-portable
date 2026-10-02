@@ -50,6 +50,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "tessdata-$UPSTREAM_TAG" --draft \
+          gh release create "tessdata-$UPSTREAM_TAG" --draft --latest=false \
             --title "tessdata-$UPSTREAM_TAG" \
             --notes 'Unmodified upstream tessdata language and script models.' release/*
