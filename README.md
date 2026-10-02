@@ -49,10 +49,11 @@ Both are required to match SHA-256
 `refresh.yml` runs monthly and can be dispatched manually. It updates the vcpkg
 baseline, regenerates the overlay from the upstream port (preserving only the
 intentional removal of curl and libarchive), moves the digest-pinned build containers
-to their newest images, opens a PR, and dispatches the Build workflow on it. That run
-writes the `BUILDINFO.json` package changes against the latest release to its job
-summary. If nothing changed, close the PR; otherwise merge it and tag the next
-`v<version>_<build>` release.
+to their newest images, pushes the branch `automation/vcpkg-refresh`, and opens an
+issue with a link to open the PR (workflows may not create pull requests here). That
+PR's Build run writes the `BUILDINFO.json` package changes against the latest release
+to its job summary. If nothing changed, close the PR; otherwise merge it and tag the
+next `v<version>_<build>` release.
 
 Dependabot keeps the commit-SHA-pinned actions current. Security settings and
 reporting: see [SECURITY.md](SECURITY.md).

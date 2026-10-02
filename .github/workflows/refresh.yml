@@ -7,16 +7,20 @@ on:
 
 permissions: {}
 
+# Workflows may not create or approve pull requests (repository setting). The refresh pushes a
+# branch and opens an issue with a link to open the PR; that PR's Build run compares the
+# packages with the latest release.
 jobs:
   refresh:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pull-requests: write
-      actions: write
+      issues: write
+    env:
+      BRANCH: automation/vcpkg-refresh
     steps:
-      # Credentials stay in the checkout: create-pull-request pushes the branch. Only this
-      # repository's own scripts run here.
+      # Credentials stay in the checkout to push the branch. Only this repository's own scripts
+      # run here.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Update baseline, overlay and container images
         shell: bash
@@ -28,21 +32,44 @@ jobs:
             scripts/refresh-overlay.sh "$baseline"
           fi
           scripts/refresh-images.sh
-      - id: pr
-        name: Open refresh pull request
-        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
-        with:
-          branch: automation/vcpkg-refresh
-          delete-branch: true
-          commit-message: 'chore: refresh vcpkg baseline and build images'
-          title: 'chore: refresh vcpkg baseline and build images'
-          body: |
-            Updates the vcpkg baseline, recreates the Tesseract overlay from that exact commit, and moves the pinned build container digests.
-
-            This workflow dispatches the Build workflow on this branch (PRs opened with `GITHUB_TOKEN` trigger no `pull_request` workflows). Its "Compare packages with the latest release" job summary lists the package version changes. If nothing changed, close this PR; otherwise merge it and tag the next `v<version>_<build>` release.
-      - name: Build the refresh branch
-        if: steps.pr.outputs.pull-request-operation == 'created' || steps.pr.outputs.pull-request-operation == 'updated'
+      - name: Push the refresh branch and open an issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run build.yml --ref automation/vcpkg-refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo 'Nothing to refresh.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git add --all
+          git commit --quiet --message 'chore: refresh vcpkg baseline and build images'
+          git push --force origin "$BRANCH"
+
+          title='vcpkg refresh ready for review'
+          number="$(gh issue list --state open --search "\"$title\" in:title" --json number,title |
+            jq -r --arg title "$title" '[.[] | select(.title == $title)][0].number // empty')"
+          existing="$number"
+          if [[ -z "$number" ]]; then
+            number="$(gh issue create --title "$title" --body 'Preparing…' | sed -E 's#.*/##')"
+          fi
+          pr_title='chore: refresh vcpkg baseline and build images'
+          pr_url="https://github.com/$GH_REPO/compare/master...$BRANCH?expand=1&title=$(jq -rn --arg v "$pr_title" '$v|@uri')&body=$(jq -rn --arg v "Closes #$number" '$v|@uri')"
+          {
+            echo "The scheduled refresh pushed \`$BRANCH\` ($(git rev-parse --short HEAD), $(date -u +%Y-%m-%d))."
+            echo
+            echo '```'
+            git show --stat --format= HEAD
+            echo '```'
+            echo
+            echo "**[Open the pull request]($pr_url)**. Its Build run lists the package version changes against the latest release in the \"Compare packages with the latest release\" job summary. If nothing changed, close the PR and this issue; otherwise merge it and tag the next \`v<version>_<build>\` release."
+          } > body.md
+          gh issue edit "$number" --body-file body.md
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$number" --body "Refreshed again: \`$BRANCH\` is now $(git rev-parse --short HEAD); the description is updated."
+          fi
+          echo "Issue #$number" >> "$GITHUB_STEP_SUMMARY"

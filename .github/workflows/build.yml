@@ -4,9 +4,6 @@ on:
   push:
     branches: [master]
   pull_request:
-  # refresh.yml dispatches this on its PR branch: PRs opened with GITHUB_TOKEN trigger no
-  # pull_request workflows.
-  workflow_dispatch:
   workflow_call:
     inputs:
       release_tag:
@@ -118,7 +115,11 @@ jobs:
 
   compare-buildinfo:
     name: Compare packages with the latest release
-    if: github.event_name == 'workflow_dispatch'
+    # The PR you open from the branch refresh.yml pushes (not a fork's branch of that name).
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'automation/vcpkg-refresh' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     needs: [build-linux, build-native]
     runs-on: ubuntu-24.04
     steps:
