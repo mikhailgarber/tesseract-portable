@@ -4,6 +4,9 @@ on:
   push:
     branches: [master]
   pull_request:
+  # refresh.yml dispatches this on its PR branch: PRs opened with GITHUB_TOKEN trigger no
+  # pull_request workflows.
+  workflow_dispatch:
   workflow_call:
     inputs:
       release_tag:
@@ -14,14 +17,11 @@ on:
 permissions:
   contents: read
 
-env:
-  VCPKG_COMMIT: eb2d3a3279fd019cb7733072d86900d0ad2a1aef
-
 jobs:
   build-linux:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
-    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    container: ${{ matrix.image }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,27 +29,24 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             triplet: x64-linux-portable
             runner: ubuntu-24.04
-            arch: x86_64
+            image: quay.io/pypa/manylinux_2_28_x86_64@sha256:1e102f2e9ed9b7fd8d64b29f798c76078c3fa8f14d34914d7a4045e39419d8e0
           - target: aarch64-unknown-linux-gnu
             triplet: arm64-linux-portable
             runner: ubuntu-24.04-arm
-            arch: aarch64
+            image: quay.io/pypa/manylinux_2_28_aarch64@sha256:017c91801301dee044fdf5e48f0291071a471f493a2f047c10d39987fe219536
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install build tools
         run: dnf --disablerepo=extras install -y autoconf automake cmake curl git jq libtool make nasm ninja-build patch perl pkgconfig tar which
       - name: Build and verify
         shell: bash
-        run: |
-          release_tag='${{ inputs.release_tag }}'
-          build_number=1
-          if [[ -n "$release_tag" ]]; then
-            port_version="$(jq -r '.version' overlay-ports/tesseract/vcpkg.json)"
-            [[ "$release_tag" =~ ^v${port_version//./\.}_([1-9][0-9]*)$ ]]
-            build_number="${release_tag##*_}"
-          fi
-          TARGET='${{ matrix.triplet }}' BUILD_NUMBER="$build_number" scripts/build.sh
-      - uses: actions/upload-artifact@v4
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ matrix.triplet }}
+        run: scripts/build.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tesseract-${{ matrix.target }}
           path: dist/*
@@ -72,25 +69,22 @@ jobs:
             triplet: x64-windows-static
             runner: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install macOS build tools
         if: contains(matrix.target, 'apple')
         run: brew install pkg-config
       - name: Set up MSVC environment
         if: contains(matrix.target, 'windows')
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Build and verify
         shell: bash
-        run: |
-          release_tag='${{ inputs.release_tag }}'
-          build_number=1
-          if [[ -n "$release_tag" ]]; then
-            port_version="$(jq -r '.version' overlay-ports/tesseract/vcpkg.json)"
-            [[ "$release_tag" =~ ^v${port_version//./\.}_([1-9][0-9]*)$ ]]
-            build_number="${release_tag##*_}"
-          fi
-          TARGET='${{ matrix.triplet }}' BUILD_NUMBER="$build_number" scripts/build.sh
-      - uses: actions/upload-artifact@v4
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ matrix.triplet }}
+        run: scripts/build.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tesseract-${{ matrix.target }}
           path: dist/*
@@ -109,7 +103,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: tesseract-${{ matrix.target }}
           path: package
@@ -118,5 +112,54 @@ jobs:
         run: |
           mkdir extracted
           tar -C extracted -xzf package/*.tar.gz
-          docker run --rm --volume "$PWD/extracted:/opt/tesseract:ro" debian:bookworm-slim \
+          docker run --rm --volume "$PWD/extracted:/opt/tesseract:ro" \
+            debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 \
             /opt/tesseract/bin/tesseract --version
+
+  compare-buildinfo:
+    name: Compare packages with the latest release
+    if: github.event_name == 'workflow_dispatch'
+    needs: [build-linux, build-native]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: tesseract-*
+          path: current
+          merge-multiple: true
+      - name: Write the package diff to the job summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_tag="$(gh release list --limit 100 --json tagName,isDraft --jq '[.[] | select((.isDraft | not) and (.tagName | startswith("v")))] | .[0].tagName // empty')"
+          if [[ -z "$latest_tag" ]]; then
+            echo 'No published binary release to compare with.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir previous
+          gh release download "$latest_tag" --pattern '*.tar.gz' --dir previous
+          printf '## vcpkg packages compared with `%s`\n' "$latest_tag" >> "$GITHUB_STEP_SUMMARY"
+          changed=false
+          for archive in current/*.tar.gz; do
+            target="$(tar -xOf "$archive" BUILDINFO.json | jq -r '.target')"
+            previous_archive="$(find previous -name "*-${target}.tar.gz" -print -quit)"
+            if [[ -z "$previous_archive" ]]; then
+              printf '\n### %s\nNo matching previous artifact.\n' "$target" >> "$GITHUB_STEP_SUMMARY"
+              changed=true
+              continue
+            fi
+            current_packages="$(tar -xOf "$archive" BUILDINFO.json | jq -S '.packages')"
+            previous_packages="$(tar -xOf "$previous_archive" BUILDINFO.json | jq -S '.packages')"
+            if [[ "$current_packages" != "$previous_packages" ]]; then
+              printf '\n### %s\n```diff\n' "$target" >> "$GITHUB_STEP_SUMMARY"
+              diff -u <(printf '%s\n' "$previous_packages") <(printf '%s\n' "$current_packages") >> "$GITHUB_STEP_SUMMARY" || true
+              printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+              changed=true
+            fi
+          done
+          if [[ "$changed" == false ]]; then
+            printf '\nNo package versions changed; close the refresh PR.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
