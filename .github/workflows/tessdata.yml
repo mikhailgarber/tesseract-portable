@@ -43,14 +43,19 @@ jobs:
           git clone --depth 1 --branch "$UPSTREAM_TAG" "https://github.com/tesseract-ocr/$SOURCE.git" upstream
           commit="$(git -C upstream rev-parse HEAD)"
           mkdir release
-          # Language models from the top level, script models from script/, all flat in the
-          # release (as Debian installs them: tessdata/Cyrillic.traineddata).
+          # Language models from the top level as <lang>.traineddata, script models from
+          # script/ as script-<Script>.traineddata: upstream has both lao and script/Lao, and
+          # asset names (like macOS and Windows file names) ignore case.
+          declare -A seen=()
           while IFS= read -r -d '' model; do
             name="$(basename "$model")"
-            if [[ -e "release/$name" ]]; then
-              printf 'duplicate model name: %s\n' "$name" >&2
+            [[ "$model" == upstream/script/* ]] && name="script-$name"
+            key="${name,,}"
+            if [[ -n "${seen[$key]:-}" ]]; then
+              printf 'duplicate model name (ignoring case): %s\n' "$name" >&2
               exit 1
             fi
+            seen[$key]=1
             cp "$model" "release/$name"
           done < <(find upstream upstream/script -maxdepth 1 -type f -name '*.traineddata' -print0 | sort -z)
           (
@@ -78,4 +83,4 @@ jobs:
         run: |
           gh release create "$SOURCE-$UPSTREAM_TAG" --draft --latest=false \
             --title "$SOURCE-$UPSTREAM_TAG" \
-            --notes "Unmodified upstream $SOURCE language and script models (script models flat, as Debian installs them)." release/*
+            --notes "Unmodified upstream $SOURCE language and script models (script/<Script>.traineddata published as script-<Script>.traineddata)." release/*
