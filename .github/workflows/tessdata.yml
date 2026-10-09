@@ -3,8 +3,16 @@ name: Publish Tessdata
 on:
   workflow_dispatch:
     inputs:
+      source:
+        description: Upstream model repository in tesseract-ocr.
+        required: true
+        default: tessdata_fast
+        type: choice
+        options:
+          - tessdata_fast
+          - tessdata
       upstream_tag:
-        description: Upstream tesseract-ocr/tessdata tag.
+        description: Upstream tag of that repository.
         required: true
         default: 4.1.0
         type: string
@@ -17,20 +25,34 @@ jobs:
     permissions:
       contents: write
     env:
+      SOURCE: ${{ inputs.source }}
       UPSTREAM_TAG: ${{ inputs.upstream_tag }}
     steps:
       - name: Fetch models and create checksums
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$SOURCE" != 'tessdata' && "$SOURCE" != 'tessdata_fast' ]]; then
+            printf 'invalid source: %s\n' "$SOURCE" >&2
+            exit 1
+          fi
           if [[ ! "$UPSTREAM_TAG" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
             printf 'invalid upstream tag: %s\n' "$UPSTREAM_TAG" >&2
             exit 1
           fi
-          git clone --depth 1 --branch "$UPSTREAM_TAG" https://github.com/tesseract-ocr/tessdata.git upstream
+          git clone --depth 1 --branch "$UPSTREAM_TAG" "https://github.com/tesseract-ocr/$SOURCE.git" upstream
           commit="$(git -C upstream rev-parse HEAD)"
           mkdir release
-          find upstream -maxdepth 1 -type f -name '*.traineddata' -print0 | sort -z | xargs -0 -I{} cp {} release/
+          # Language models from the top level, script models from script/, all flat in the
+          # release (as Debian installs them: tessdata/Cyrillic.traineddata).
+          while IFS= read -r -d '' model; do
+            name="$(basename "$model")"
+            if [[ -e "release/$name" ]]; then
+              printf 'duplicate model name: %s\n' "$name" >&2
+              exit 1
+            fi
+            cp "$model" "release/$name"
+          done < <(find upstream upstream/script -maxdepth 1 -type f -name '*.traineddata' -print0 | sort -z)
           (
             cd release
             for model in *.traineddata; do
@@ -39,10 +61,14 @@ jobs:
             cat *.traineddata.sha256 > SHA256SUMS
           )
           if [[ "$UPSTREAM_TAG" == '4.1.0' ]]; then
-            [[ "$(awk '{print $1}' release/eng.traineddata.sha256)" == 'daa0c97d651c19fba3b25e81317cd697e9908c8208090c94c3905381c23fc047' ]]
+            case "$SOURCE" in
+              tessdata) expected='daa0c97d651c19fba3b25e81317cd697e9908c8208090c94c3905381c23fc047' ;;
+              tessdata_fast) expected='7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2' ;;
+            esac
+            [[ "$(awk '{print $1}' release/eng.traineddata.sha256)" == "$expected" ]]
           fi
           printf '%s\n%s\n%s\n' \
-            'Repository: https://github.com/tesseract-ocr/tessdata' \
+            "Repository: https://github.com/tesseract-ocr/$SOURCE" \
             "Commit: $commit" \
             'License: Apache-2.0' > release/SOURCE.txt
       - name: Create draft release
@@ -50,6 +76,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "tessdata-$UPSTREAM_TAG" --draft --latest=false \
-            --title "tessdata-$UPSTREAM_TAG" \
-            --notes 'Unmodified upstream tessdata language and script models.' release/*
+          gh release create "$SOURCE-$UPSTREAM_TAG" --draft --latest=false \
+            --title "$SOURCE-$UPSTREAM_TAG" \
+            --notes "Unmodified upstream $SOURCE language and script models (script models flat, as Debian installs them)." release/*

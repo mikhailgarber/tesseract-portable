@@ -29,9 +29,13 @@ Each archive contains `bin/tesseract` (or `bin/tesseract.exe`), `LICENSES/`, and
 immutable; a fix is always a new build number. Each archive has a build provenance
 attestation (see [SECURITY.md](SECURITY.md)).
 
-Tessdata models have their own `tessdata-<upstream-tag>` releases. These releases
-contain unmodified `.traineddata` files, individual checksum files, `SHA256SUMS`,
-and `SOURCE.txt`. Publish `tessdata-4.1.0` before the first binary release.
+Tessdata models have their own `<source>-<upstream-tag>` releases, published by
+`tessdata.yml` from `tesseract-ocr/tessdata_fast` (e.g. `tessdata_fast-4.1.0`, the
+models Debian and Ubuntu package) or `tesseract-ocr/tessdata` (e.g. `tessdata-4.1.0`).
+These releases contain unmodified `.traineddata` files, individual checksum files,
+`SHA256SUMS`, and `SOURCE.txt`. Script models (`script/Cyrillic.traineddata`
+upstream) are published flat as `Cyrillic.traineddata`, where Debian installs them.
+Publish `tessdata-4.1.0` before the first binary release (CI's test model).
 
 ## Verification
 
