@@ -53,7 +53,8 @@ Both are required to match SHA-256
 
 `refresh.yml` runs monthly and can be dispatched manually. It updates the vcpkg
 baseline, regenerates the overlay from the upstream port (preserving only the
-intentional removal of curl and libarchive), moves the digest-pinned build containers
+intentional removal of curl and libarchive), moves the digest-pinned build containers in
+`build-images.json` (kept out of `build.yml`: a workflow's token may not change workflow files)
 to their newest images, pushes the branch `automation/vcpkg-refresh`, and opens an
 issue with a link to open the PR (workflows may not create pull requests here). That
 PR's Build run writes the `BUILDINFO.json` package changes against the latest release

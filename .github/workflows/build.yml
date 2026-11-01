@@ -7,6 +7,7 @@ on:
     branches: [master]
     paths: &build-inputs
       - .github/workflows/build.yml
+      - build-images.json
       - overlay-ports/**
       - triplets/**
       - vcpkg.json
@@ -35,10 +36,32 @@ permissions:
   contents: read
 
 jobs:
+  # The container images are pinned in build-images.json, not here: refresh.yml moves their
+  # digests, and a workflow's token may not change workflow files.
+  images:
+    name: Read build images
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.read.outputs.images }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          sparse-checkout: build-images.json
+          sparse-checkout-cone-mode: false
+      - name: Read the digest-pinned images
+        id: read
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e 'all(.[]; test("^[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$"))' build-images.json > /dev/null
+          echo "images=$(jq -c . build-images.json)" >> "$GITHUB_OUTPUT"
+
   build-linux:
     name: ${{ matrix.target }}
+    needs: images
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.image }}
+    container: ${{ fromJSON(needs.images.outputs.images)[matrix.target] }}
     strategy:
       fail-fast: false
       matrix:
@@ -46,11 +69,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             triplet: x64-linux-portable
             runner: ubuntu-24.04
-            image: quay.io/pypa/manylinux_2_28_x86_64@sha256:1e102f2e9ed9b7fd8d64b29f798c76078c3fa8f14d34914d7a4045e39419d8e0
           - target: aarch64-unknown-linux-gnu
             triplet: arm64-linux-portable
             runner: ubuntu-24.04-arm
-            image: quay.io/pypa/manylinux_2_28_aarch64@sha256:017c91801301dee044fdf5e48f0291071a471f493a2f047c10d39987fe219536
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -109,7 +130,7 @@ jobs:
 
   clean-linux:
     name: Clean environment (${{ matrix.target }})
-    needs: build-linux
+    needs: [images, build-linux]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -126,11 +147,12 @@ jobs:
           path: package
       - name: Run in Debian Bookworm
         shell: bash
+        env:
+          IMAGE: ${{ fromJSON(needs.images.outputs.images)['clean-environment'] }}
         run: |
           mkdir extracted
           tar -C extracted -xzf package/*.tar.gz
-          docker run --rm --volume "$PWD/extracted:/opt/tesseract:ro" \
-            debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 \
+          docker run --rm --volume "$PWD/extracted:/opt/tesseract:ro" "$IMAGE" \
             /opt/tesseract/bin/tesseract --version
 
   compare-buildinfo:
